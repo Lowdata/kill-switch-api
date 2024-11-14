@@ -1,27 +1,46 @@
-const express = require('express');
-const swaggerJsDoc = require('swagger-jsdoc');
-const cors = require('cors'); 
-const swaggerUi = require('swagger-ui-express');
-require('dotenv').config();
+const express = require("express");
+const swaggerJsDoc = require("swagger-jsdoc");
+const cors = require("cors");
+const swaggerUi = require("swagger-ui-express");
+const mongoose = require("mongoose");
+require("dotenv").config();
 
 const app = express();
 const port = process.env.PORT || 3000;
-
-let appStatus = false; // The initial state of the app
-
 app.use(cors());
-
-// Middleware to parse JSON
 app.use(express.json());
+
+// Connect to MongoDB
+mongoose
+  .connect(process.env.MONGO_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
+  .then(() => console.log("Connected to MongoDB"))
+  .catch((error) => console.error("MongoDB connection error:", error));
+
+// Define the schema and model for app status
+const appStatusSchema = new mongoose.Schema({
+  status: { type: Boolean, default: false },
+  updatedAt: { type: Date, default: Date.now },
+});
+appStatusSchema.pre("save", function (next) {
+  this.updatedAt = Date.now();
+  next();
+});
+
+const AppStatus = mongoose.model("AppStatus", appStatusSchema);
+
+
 
 // Swagger setup
 const swaggerOptions = {
   swaggerDefinition: {
-    openapi: '3.0.0',
+    openapi: "3.0.0",
     info: {
-      title: 'Kill Switch API',
-      version: '1.0.0',
-      description: 'API for controlling app availability remotely',
+      title: "Kill Switch API",
+      version: "1.0.0",
+      description: "API for controlling app availability remotely",
     },
     servers: [
       {
@@ -29,11 +48,11 @@ const swaggerOptions = {
       },
     ],
   },
-  apis: ['./app.js'], // Location of API documentation
+  apis: ["./app.js"],
 };
 
 const swaggerDocs = swaggerJsDoc(swaggerOptions);
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs));
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocs));
 
 /**
  * @swagger
@@ -52,8 +71,14 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs));
  *                 status:
  *                   type: boolean
  */
-app.get('/api/check-app-status', (req, res) => {
-  res.json({ status: appStatus });
+app.get("/api/check-app-status", async (req, res) => {
+  try {
+    const appStatusDoc = await AppStatus.findOne();
+    const status = appStatusDoc ? appStatusDoc.status : false;
+    res.json({ status });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch app status" });
+  }
 });
 
 /**
@@ -81,15 +106,35 @@ app.get('/api/check-app-status', (req, res) => {
  *       403:
  *         description: Forbidden. Invalid API key.
  */
-app.post('/api/toggle-app-status', (req, res) => {
+app.post("/api/toggle-app-status", async (req, res) => {
   const { apiKey } = req.query;
   const correctApiKey = process.env.API_KEY;
 
-  if (apiKey === correctApiKey) {
-    appStatus = !appStatus;
-    res.json({ newStatus: appStatus });
+  if (apiKey === "admin") {
+    try {
+      let appStatusDoc = await AppStatus.findOne();
+      if (!appStatusDoc) {
+        appStatusDoc = new AppStatus();
+      }
+
+      // Toggle the status
+      appStatusDoc.status = !appStatusDoc.status;
+
+      // Save and log the result for debugging
+      const result = await appStatusDoc.save();
+      console.log("Document saved successfully:", result); // Log the result
+
+      // Send the new status in the response
+      res.json({ newStatus: appStatusDoc.status });
+    } catch (error) {
+      console.error("Error saving document:", error.message); // Log the error message
+      console.error("Full error details:", error); // Log the full error object for more details
+      res
+        .status(500)
+        .json({ error: "Failed to toggle app status", details: error.message });
+    }
   } else {
-    res.status(403).json({ error: 'Invalid API Key' });
+    res.status(403).json({ error: "Invalid API Key" });
   }
 });
 
