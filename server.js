@@ -110,7 +110,7 @@ app.post("/api/toggle-app-status", async (req, res) => {
   const { apiKey } = req.query;
   const correctApiKey = process.env.API_KEY;
 
-  if (apiKey === "admin") {
+  if (apiKey === process.env.API_KEY) {
     try {
       let appStatusDoc = await AppStatus.findOne();
       if (!appStatusDoc) {
